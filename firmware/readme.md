@@ -17,6 +17,7 @@
 - RS485
 - RS232
 - LIN
+- LPUART
 
 **CAN**
 - FDCAN
