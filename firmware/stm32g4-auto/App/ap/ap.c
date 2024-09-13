@@ -4,7 +4,7 @@
 
 void apInit (void)
 {
-  cliOpen(HW_UART_CH_RS485, 115200);
+  cliOpen(HW_UART_CH_LPUART, 115200);
   logBoot(true);
 }
 

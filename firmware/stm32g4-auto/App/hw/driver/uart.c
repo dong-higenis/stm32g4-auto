@@ -2,7 +2,7 @@
 #include "qbuffer.h"
 #include "cli.h"
 #include "util.h"
-
+#include "gpio.h"
 #ifdef _USE_HW_USB
 #include "cdc.h"
 #endif
@@ -28,6 +28,12 @@ typedef struct
   uint32_t tx_cnt;
 } uart_tbl_t;
 
+typedef enum {
+	UART_TYPE_NORMAL,
+	UART_TYPE_RS485,
+	UART_TYPE_LIN
+} uart_type_t;
+
 typedef struct
 {
   const char         *p_msg;
@@ -35,7 +41,7 @@ typedef struct
   UART_HandleTypeDef *p_huart;
   DMA_HandleTypeDef  *p_hdma_rx;
   DMA_HandleTypeDef  *p_hdma_tx;
-  bool                is_rs485;
+  uart_type_t        uart_type;
 } uart_hw_t;
 
 
@@ -61,11 +67,11 @@ extern DMA_HandleTypeDef hdma_usart3_rx;
 
 const static uart_hw_t uart_hw_tbl[UART_MAX_CH] =
 {
-  {"USART1   LIN   ", USART1,   &huart1,    &hdma_usart1_rx,  NULL, false},
-  {"USART2   RS232 ", USART2,   &huart2,    &hdma_usart2_rx,  NULL, false},
-  {"USART3   RS485 ", USART3,   &huart3,    &hdma_usart3_rx,  NULL, true},
-  {"LPUART1        ", LPUART1,  &hlpuart1,  &hdma_lpuart1_rx, NULL, false},
-  {"USB      USB   ", NULL,     NULL,       NULL,             NULL, false},
+  {"LPUART1        ", LPUART1,  &hlpuart1,  &hdma_lpuart1_rx, NULL, UART_TYPE_NORMAL},
+  {"USART1   LIN   ", USART1,   &huart1,    &hdma_usart1_rx,  NULL, UART_TYPE_LIN},
+  {"USART2   RS232 ", USART2,   &huart2,    &hdma_usart2_rx,  NULL, UART_TYPE_NORMAL},
+  {"USART3   RS485 ", USART3,   &huart3,    &hdma_usart3_rx,  NULL, UART_TYPE_RS485},
+  {"USB      USB   ", NULL,     NULL,       NULL,             NULL, UART_TYPE_NORMAL},
 };
 
 bool uartInit(void)
@@ -76,16 +82,14 @@ bool uartInit(void)
 
     switch (i)
     {
+      case HW_UART_CH_LPUART:
       case HW_UART_CH_LIN:
       case HW_UART_CH_RS232:
         uart_tbl[i].baud = 115200;
-        break;
-      case HW_UART_CH_RS485:
-        uart_tbl[i].baud = 115200;
-        HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_SET);
-        break;
-      case HW_UART_CH_LPUART:
-        uart_tbl[i].baud = 209700;
+        if(uart_hw_tbl[i].uart_type == UART_TYPE_RS485)
+        {
+        	HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_SET);
+        }
         break;
       case HW_UART_CH_USB:
         break;
@@ -156,9 +160,14 @@ bool uartOpen(uint8_t ch, uint32_t baud)
 
       HAL_UART_DeInit(uart_tbl[ch].p_huart);
 
-      if (uart_hw_tbl[ch].is_rs485 == true)
+      if(uart_hw_tbl[ch].uart_type == UART_TYPE_RS485)
       {
         ret_hal = HAL_RS485Ex_Init(uart_tbl[ch].p_huart, UART_DE_POLARITY_HIGH, 0, 0);
+      }
+      else if(uart_hw_tbl[ch].uart_type == UART_TYPE_LIN)
+      {
+    	  gpioPinWrite(HW_GPIO_CH_LIN_EN, true);
+    	  ret_hal = HAL_LIN_Init(uart_tbl[ch].p_huart, UART_LINBREAKDETECTLENGTH_11B);
       }
       else
       {
@@ -192,6 +201,11 @@ bool uartOpen(uint8_t ch, uint32_t baud)
 bool uartClose(uint8_t ch)
 {
   if (ch >= UART_MAX_CH) return false;
+
+  if(uart_hw_tbl[ch].uart_type == UART_TYPE_LIN)
+  {
+	  gpioPinWrite(HW_GPIO_CH_LIN_EN, false);
+  }
 
   uart_tbl[ch].is_open = false;
 
@@ -288,6 +302,29 @@ uint8_t uartRead(uint8_t ch)
 
   return ret;
 }
+
+bool uartLinSendBreak(uint8_t ch)
+{
+   bool ret = false;
+
+  switch(ch)
+  {
+    case HW_UART_CH_LIN:
+    case HW_UART_CH_RS232:
+    case HW_UART_CH_RS485:
+    case HW_UART_CH_LPUART:
+      if (HAL_LIN_SendBreak(uart_tbl[ch].p_huart) == HAL_OK)
+      {
+        ret = true;
+      }
+      break;
+    case HW_UART_CH_USB:
+      break;
+  }
+
+  return ret;
+}
+
 
 uint32_t uartWrite(uint8_t ch, uint8_t *p_data, uint32_t length)
 {
@@ -422,11 +459,29 @@ void cliUart(cli_args_t *args)
     }
     ret = true;
   }
+  if (args->argc == 3 && args->isStr(0, "lin") && args->isStr(1, "test"))
+  {
+	uint8_t uart_ch;
+	//sync 0x55, id 0x16(0xD6), data: 0x11, 0x22, 0x33, checksum: 0xC2
+  	uint8_t tx_lin_data[6] = {0x55, 0xD6, 0x11, 0x22, 0x33, 0xC2};
+
+	uart_ch = constrain(args->getData(2), 1, UART_MAX_CH) - 1;
+  	uartLinSendBreak(uart_ch);
+  	uartWrite(uart_ch, tx_lin_data, 6);
+	cliPrintf("-> _DEF_UART%d Send Lin Packet : ", uart_ch + 1);
+	for(uint8_t i=0;i<6;i++)
+	{
+		cliPrintf("%02X ", tx_lin_data[i]);
+	}
+	cliPrintf("\n");
+	ret = true;
+  }
 
   if (ret == false)
   {
     cliPrintf("uart info\n");
     cliPrintf("uart test ch[1~%d]\n", HW_UART_MAX_CH);
+    cliPrintf("uart lin test ch[1~%d]\n", HW_UART_MAX_CH);
   }
 }
 #endif
