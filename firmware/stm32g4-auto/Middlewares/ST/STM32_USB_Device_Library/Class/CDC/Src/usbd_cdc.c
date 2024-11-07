@@ -135,7 +135,6 @@ __ALIGN_BEGIN static uint8_t USBD_CDC_DeviceQualifierDesc[USB_LEN_DEV_QUALIFIER_
   * @{
   */
 
-extern uint8_t CDC_SoF_ISR(struct _USBD_HandleTypeDef *pdev);
 
 /* CDC interface class callbacks structure */
 USBD_ClassTypeDef  USBD_CDC =
@@ -147,7 +146,7 @@ USBD_ClassTypeDef  USBD_CDC =
   USBD_CDC_EP0_RxReady,
   USBD_CDC_DataIn,
   USBD_CDC_DataOut,
-  CDC_SoF_ISR,
+  NULL,
   NULL,
   NULL,
   USBD_CDC_GetHSCfgDesc,
