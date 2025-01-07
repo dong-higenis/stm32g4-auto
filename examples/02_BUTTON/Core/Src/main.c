@@ -96,11 +96,11 @@ int main(void)
   {
 	  if(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0))
 	  {
-		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET); // led on
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET); // led off
 	  }
 	  else
 	  {
-		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); // led off
+		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); // led on
 	  }
     /* USER CODE END WHILE */
 
